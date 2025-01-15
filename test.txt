@@ -1,9 +1,0 @@
-del1
-del2
-ruby grep.rb '^[A-Z][a-zA-Z]*$' text.txt
-wc /Users/tamuratomoki/JetBrains/RubymineProjects/ruby_part1/text.txt
-ruby wc.rb /Users/tamuratomoki/JetBrains/RubymineProjects/ruby_part1/text.txt
-ruby grep.rb '^[A-Z][a-zA-Z]*$' text.txt
-ruby ed.rb test.txt
-
-endline
