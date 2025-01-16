@@ -106,7 +106,6 @@ class Ed
   end
 
   def command_a(full_address, addr1, addr2, params)
-    puts "command_aの実行"
     addr = addr1 || @current
 
     unless valid_address?(addr)
