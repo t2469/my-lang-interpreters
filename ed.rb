@@ -14,24 +14,26 @@ class Ed
       @current = @buffer.size if @buffer.size > 0 # カレント行を最後の行に設定
       bytes = @buffer.join("\n").bytesize
       @output = "#{bytes}\n"
+      _print
     rescue
-      @output = "?"
+      @output = "No such file"
+      _print
+      exit
     end
-    _print
 
     loop do
-      read
-      eval
+      _read
+      _eval
       _print
     end
   end
 
-  def read
+  def _read
     @command = STDIN.gets
     @command = @command.chomp if @command # 改行をなくす
   end
 
-  def eval
+  def _eval
     @output = ""
 
     begin
@@ -44,10 +46,10 @@ class Ed
         full_address = $1
         cmd = $3
         params = $4
-        addr1, addr2 = split_address(full_address)
+        addr1, addr2 = parse_address(full_address)
 
         # プリントデバッグ
-        puts "fulladdress: #{full_address}" if DEBUG
+        puts "full_address: #{full_address}" if DEBUG
         puts "cmd: #{cmd}" if DEBUG
         puts "params: #{params}" if DEBUG
         puts "addr1: #{addr1}" if DEBUG
@@ -69,20 +71,10 @@ class Ed
     1 <= addr && addr <= @buffer.size
   end
 
-  def split_address(full_address)
-    # アドレスを分割
-    if full_address
-      if full_address.include?(',')
-        addr1_str, addr2_str = full_address.split(',', 2)
-      else
-        addr1_str = full_address
-        addr2_str = nil
-      end
-    else
-      addr1_str = addr2_str = nil
-    end
+  def parse_address(full_address)
+    return [nil, nil] unless full_address
 
-    # addr1,2を数値へ変換
+    addr1_str, addr2_str = full_address.split(',', 2)
     addr1 = address_to_i(addr1_str)
     addr2 = address_to_i(addr2_str)
     [addr1, addr2]
@@ -109,51 +101,25 @@ class Ed
   end
 
   def command_print(full_address, addr1, addr2, params, include_line_number: false)
-    # 引数が正しいか判定（パラメーターが指定されたらエラー）
-    if params && !params.empty?
-      raise ArgumentError, "This command does not accept parameters."
-    end
+    raise ArgumentError, "This command does not accept parameters." if params && !params.empty?
 
-    # ","のみ指定ならばすべての行を出力
     if full_address == ","
       addr1 = 1
       addr2 = @buffer.size
-    end
-
-    # アドレスがカンマ区切りでない場合の処理
-    if full_address && !full_address.include?(',')
-      addr1_str = full_address
-      addr2_str = nil
-    elsif full_address
-      addr1_str, addr2_str = full_address.split(',', 2)
     else
-      addr1_str = addr2_str = nil
+      addr1, addr2 = parse_address(full_address)
     end
 
-    # addr1, addr2を数値へ変換
-    addr1 = address_to_i(addr1_str)
-    addr2 = address_to_i(addr2_str)
+    addr1 ||= @current
+    addr2 ||= @current
 
-    # デフォルトアドレスの設定
-    addr1 = @current if addr1.nil?
-    addr2 = @current if addr2.nil?
+    raise IndexError, "Invalid address range." unless valid_address?(addr1) && valid_address?(addr2) && addr1 <= addr2
 
-    # アドレスの検証
-    unless valid_address?(addr1) && valid_address?(addr2) && addr1 <= addr2
-      raise IndexError, "Invalid address range."
-    end
-
-    # 出力処理
     (addr1..addr2).each do |addr|
       line = @buffer[addr - 1]
-      if include_line_number
-        @output << "#{addr} #{line}\n"
-      else
-        @output << "#{line}\n"
-      end
+      @output << (include_line_number ? "#{addr} #{line}\n" : "#{line}\n")
     end
 
-    # カレント行の更新
     @current = addr2
   end
 
@@ -180,7 +146,7 @@ class Ed
     @current = [addr1 - 2, 1].max # 削除された範囲の1つ手前の行をカレントとする。ただし、currentが1より小さくならないように処理
   end
 
-  def command_=(full_address, params)
+  def command_=(full_address, addr1, addr2, params)
     # アドレスが未指定の場合、デフォルトアドレスであるカレント行を設定
     addr1 = @buffer.size if addr1.nil?
 
