@@ -1,10 +1,12 @@
 class Ed
-  DEBUG = true
+  DEBUG = false
 
   def initialize()
     @buffer = []
     @output = ""
     @current = 1
+    @mode = :command
+    @temp_buffer = [] # insertモード時の入力を保存する
 
     begin
       if ARGV.empty?
@@ -38,26 +40,36 @@ class Ed
     @output = ""
 
     begin
-      # 正規表現でコマンド解析
-      addr = '(?:\d+|[.$,;]|\/.*\/)'
-      cmnd = '(?:wq|[acdijnpqrw=]\z|)'
-      prmt = '(?:.*)'
-      pattern = /\A(#{addr}(,#{addr})?)?(#{cmnd})(#{prmt})?\z/
-      if @command =~ pattern
-        full_address = $1
-        cmd = $3
-        params = $4
-        addr1, addr2 = parse_address(full_address)
+      if @mode == :command
+        # 正規表現でコマンド解析
+        addr = '(?:\d+|[.$,;]|\/.*\/)'
+        cmnd = '(?:wq|[acdijnpqrw=]\z|)'
+        prmt = '(?:.*)'
+        pattern = /\A(#{addr}(,#{addr})?)?(#{cmnd})(#{prmt})?\z/
+        if @command =~ pattern
+          full_address = $1
+          cmd = $3
+          params = $4
+          addr1, addr2 = parse_address(full_address)
 
-        # プリントデバッグ
-        puts "full_address: #{full_address}" if DEBUG
-        puts "cmd: #{cmd}" if DEBUG
-        puts "params: #{params}" if DEBUG
-        puts "addr1: #{addr1}" if DEBUG
-        puts "addr2: #{addr2}" if DEBUG
-
-        # 動的ディスパッチ
+          # プリントデバッグ
+          puts "full_address: #{full_address}" if DEBUG
+          puts "cmd: #{cmd}" if DEBUG
+          puts "params: #{params}" if DEBUG
+          puts "addr1: #{addr1}" if DEBUG
+          puts "addr2: #{addr2}" if DEBUG
+        end
+        # 動的ディスパッチでコマンドの実行
         self.send("command_#{cmd}", full_address, addr1, addr2, params)
+      elsif @mode == :insert
+        if @command == "."
+          @buffer = @buffer[0...@insert_position] + @temp_buffer + @buffer[@insert_position..-1]
+          @current = @insert_position + @temp_buffer.size
+          @temp_buffer = []
+          @mode = :command
+        else
+          @temp_buffer << @command
+        end
       end
     rescue
       @output = "?"
@@ -91,6 +103,19 @@ class Ed
     when '$'
       @buffer.size
     end
+  end
+
+  def command_a(full_address, addr1, addr2, params)
+    puts "command_aの実行"
+    addr = addr1 || @current
+
+    unless valid_address?(addr)
+      raise IndexError
+    end
+
+    @insert_position = addr # 挿入位置は次の行
+    @mode = :insert
+    @temp_buffer = []
   end
 
   def command_q(full_address, addr1, addr2, params)
