@@ -8,8 +8,9 @@ class Ed
 
     begin
       if ARGV.empty?
-        raise "No such file"
+        raise "NoSuchFile"
       end
+      @file = ARGV[0]
       @buffer = ARGF.readlines.map(&:chomp)
       @current = @buffer.size if @buffer.size > 0 # カレント行を最後の行に設定
       bytes = @buffer.join("\n").bytesize
@@ -98,6 +99,17 @@ class Ed
     else
       exit
     end
+  end
+
+  def command_w(full_address, addr1, addr2, params)
+    data = @buffer.join("\n")
+    bytes = File.write(@file, data)
+    @output = "#{bytes}\n"
+  end
+
+  def command_wq(full_address, addr1, addr2, params)
+    command_w(full_address, addr1, addr2, params)
+    command_q(full_address, addr1, addr2, params)
   end
 
   def command_print(full_address, addr1, addr2, params, include_line_number: false)
