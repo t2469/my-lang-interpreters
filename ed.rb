@@ -1,10 +1,12 @@
-class Ed
+require 'delegate'
+
+class Ed < DelegateClass(Array)
   DEBUG = false
 
   def initialize()
-    @buffer = []
-    @output = ""
+    super([])
     @current = 1
+    @output = ""
     @mode = :command
     @temp_buffer = [] # insertモード時の入力を保存する
 
@@ -13,9 +15,9 @@ class Ed
         raise "NoSuchFile"
       end
       @file = ARGV[0]
-      @buffer = ARGF.readlines.map(&:chomp)
-      @current = @buffer.size if @buffer.size > 0 # カレント行を最後の行に設定
-      bytes = @buffer.join("\n").bytesize
+      self.concat(ARGF.readlines.map(&:chomp))
+      @current = self.size if self.size > 0 # カレント行を最後の行に設定
+      bytes = self.join("\n").bytesize
       @output = "#{bytes}\n"
       _print
     rescue
@@ -63,7 +65,7 @@ class Ed
         self.send("command_#{cmd}", full_address, addr1, addr2, params)
       elsif @mode == :insert
         if @command == "."
-          @buffer = @buffer[0...@insert_position] + @temp_buffer + @buffer[@insert_position..-1]
+          self[@insert_position, 0] = @temp_buffer
           @current = @insert_position + @temp_buffer.size
           @temp_buffer = []
           @mode = :command
@@ -81,7 +83,7 @@ class Ed
   end
 
   def valid_address?(addr)
-    1 <= addr && addr <= @buffer.size
+    1 <= addr && addr <= self.size
   end
 
   def parse_address(full_address)
@@ -101,7 +103,7 @@ class Ed
     when '.'
       @current
     when '$'
-      @buffer.size
+      self.size
     end
   end
 
@@ -126,7 +128,7 @@ class Ed
   end
 
   def command_w(full_address, addr1, addr2, params)
-    data = @buffer.join("\n")
+    data = self.join("\n")
     bytes = File.write(@file, data)
     @output = "#{bytes}\n"
   end
@@ -141,7 +143,7 @@ class Ed
 
     if full_address == ","
       addr1 = 1
-      addr2 = @buffer.size
+      addr2 = self.size
     else
       addr1, addr2 = parse_address(full_address)
     end
@@ -152,7 +154,7 @@ class Ed
     raise IndexError, "Invalid address range." unless valid_address?(addr1) && valid_address?(addr2) && addr1 <= addr2
 
     (addr1..addr2).each do |addr|
-      line = @buffer[addr - 1]
+      line = self[addr - 1]
       @output << (include_line_number ? "#{addr} #{line}\n" : "#{line}\n")
     end
 
@@ -178,13 +180,13 @@ class Ed
     end
 
     # 要素の削除
-    @buffer.slice!(addr1 - 1..addr2 - 1)
+    self.slice!(addr1 - 1..addr2 - 1)
     @current = [addr1 - 2, 1].max # 削除された範囲の1つ手前の行をカレントとする。ただし、currentが1より小さくならないように処理
   end
 
   def command_=(full_address, addr1, addr2, params)
     # アドレスが未指定の場合、デフォルトアドレスであるカレント行を設定
-    addr1 = @buffer.size if addr1.nil?
+    addr1 = self.size if addr1.nil?
 
     # アドレスが正しいか判定
     unless valid_address?(addr1)
@@ -211,7 +213,7 @@ class Ed
       end
 
       @current = addr1
-      @output << "#{@buffer[addr1 - 1]}\n"
+      @output << "#{self[addr1 - 1]}\n"
     else
       # 改行コマンド
       # 正しい範囲内か判定
@@ -219,7 +221,7 @@ class Ed
         raise IndexError
       end
       @current += 1
-      @output << "#{@buffer[@current - 1]}\n"
+      @output << "#{self[@current - 1]}\n"
     end
   end
 end
