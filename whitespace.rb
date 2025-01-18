@@ -1,4 +1,14 @@
+require 'strscan'
+
 class Whitespace
+  IMPS = {
+    " " => :stack,
+    "\t " => :arithmetic,
+    "\t\t" => :heap,
+    "\n" => :flow,
+    "\t\n" => :io
+  }.freeze
+
   def initialize
     @scanner = nil
   end
@@ -7,6 +17,8 @@ class Whitespace
     tokens = []
     while code.length > 0
       # IMP切り出し
+      imp = extract_imp(@scanner)
+      raise "IMPが定義されていません。 #{scanner.pos}" unless imp
 
       # コマンド切り出し
 
@@ -15,6 +27,15 @@ class Whitespace
       tokens << imp << command << params
     end
     tokens
+  end
+
+  def extract_imp(scanner)
+    IMPS.each do |key, symbol|
+      if scanner.scan(key)
+        return symbol
+      end
+    end
+    nil
   end
 
 end
