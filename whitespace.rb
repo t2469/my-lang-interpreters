@@ -86,7 +86,7 @@ class Whitespace
       # パラメータ切り出し
       params = nil
       if has_params?(imp, command)
-        params = extract_parameter(@scanner, imp, command)
+        params = extract_parameter(@scanner, imp)
         raise "パラメータが定義されていません。#{@scanner.pos}" unless params
       end
 
@@ -124,7 +124,7 @@ class Whitespace
     end
   end
 
-  def extract_parameter(scanner, imp, command)
+  def extract_parameter(scanner, imp)
     pattern = PARAMS_PATTERNS[imp]
     scanner.scan(pattern)
   end
