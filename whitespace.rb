@@ -46,6 +46,19 @@ class Whitespace
     }
   }.freeze
 
+  COMMAND_PATTERNS = {
+    :stack => / |\n[ \t\n]/,
+    :arithmetic => / [ \t\n]|\t[ \t]/,
+    :heap => /[ \t]/,
+    :flow => / [ \t\n]|\t[ \t\n]|\n\n/,
+    :io => / [ \t]|\t[ \t]/
+  }.freeze
+
+  PARAMS_PATTERNS = {
+    :stack => /[ \t]+\n/,
+    :flow => /[ \t]+\n/
+  }.freeze
+
   def initialize
     @scanner = nil
   end
@@ -53,23 +66,31 @@ class Whitespace
   def tokenize(code)
     tokens = []
     @scanner = StringScanner.new(code)
+    return if @scanner == nil
 
     until @scanner.eos?
       # IMP切り出し
       imp = extract_imp(@scanner)
-      raise "IMPが定義されていません。#{@scanner.pos}" unless imp
+      if imp.nil?
+        @scanner.getch
+        next
+      end
 
       # コマンド切り出し
       command = extract_command(@scanner, imp)
-      raise "コマンドが定義されていません。#{@scanner.pos}" unless command
+      if command.nil?
+        @scanner.getch
+        next
+      end
 
       # パラメータ切り出し
+      params = nil
       if has_params?(imp, command)
         params = extract_parameter(@scanner, imp, command)
         raise "パラメータが定義されていません。#{@scanner.pos}" unless params
       end
 
-      tokens << imp << command << params
+      tokens << [imp, command, params]
     end
     tokens
   end
@@ -77,29 +98,18 @@ class Whitespace
   # -----------------------
   #  ヘルパーメソッド
   # -----------------------
-  def extract_imp(scanner)
-    IMPS.each do |key, symbol|
-      pattern = Regexp.new(Regexp.escape(key))
-      if scanner.scan(pattern)
-        return symbol
-      end
-    end
 
-    nil
+  # impの切り出しメソッド
+  def extract_imp(scanner)
+    pattern = /\A( |\n|\t[ \n\t])/
+    IMPS[scanner.scan(pattern)]
   end
 
+  # commandの切り出しメソッド
   def extract_command(scanner, imp)
-    cmd_map = COMMANDS[imp]
-    return nil if cmd_map.nil?
-
-    cmd_map.each do |key, symbol|
-      pattern = Regexp.new(Regexp.escape(key))
-      if scanner.scan(pattern)
-        return symbol
-      end
-    end
-
-    nil
+    pattern = COMMAND_PATTERNS[imp]
+    command = scanner.scan(pattern)
+    COMMANDS[imp][command]
   end
 
   # 与えられたIMP,commandのとき、paramsが必要とされているかを真偽値で返すメソッド
@@ -115,37 +125,9 @@ class Whitespace
   end
 
   def extract_parameter(scanner, imp, command)
-    param_bits = ""
-    while !scanner.eos? && [" ", "\t"].include?(scanner.peek(1))
-      param_bits << scanner.getch
-    end
-    if scanner.peek(1) == "\n"
-      scanner.getch
-    end
-    if imp == :stack && [:push, :copy, :slide].include?(command)
-      bits_to_number(param_bits)
-    elsif imp == :flow && [:mark_label, :call_subroutine, :jump_unconditional, :jump_if_zero, :jump_if_negative].include?(command)
-      return param_bits
-    else
-      nil
-    end
+    pattern = PARAMS_PATTERNS[imp]
+    scanner.scan(pattern)
   end
-
-  def bits_to_number(bits)
-    return nil if bits.empty?
-
-    sign = bits[0]
-    number_part = bits[1..-1] || ""
-
-    bin_string = number_part.gsub(" ", "0").gsub("\t", "1")
-    return nil if bin_string.empty?
-
-    value = bin_string.to_i(2)
-    sign == "\t" ? -value : value
-  rescue
-    nil
-  end
-
 end
 
 def main
