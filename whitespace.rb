@@ -1,133 +1,154 @@
-require 'strscan'
+require "strscan"
 
 class Whitespace
-  IMPS = {
-    " " => :stack,
-    "\t " => :arithmetic,
-    "\t\t" => :heap,
-    "\n" => :flow,
-    "\t\n" => :io
-  }.freeze
-
-  COMMANDS = {
-    stack: {
-      " " => :push, # [Space] Number
-      "\n " => :duplicate, # [LF][Space]
-      "\t " => :copy, # [Tab][Space] Number
-      "\n\t" => :swap, # [LF][Tab]
-      "\n\n" => :discard, # [LF][LF]
-      "\t\n" => :slide # [Tab][LF] Number
-    },
-    arithmetic: {
-      "  " => :add, # [Space][Space]
-      " \t" => :subtract, # [Space][Tab]
-      " \n" => :multiply, # [Space][LF]
-      "\t " => :divide, # [Tab][Space]
-      "\t\t" => :modulo # [Tab][Tab]
-    },
-    heap: {
-      " " => :store, # [Space]
-      "\t" => :retrieve # [Tab]
-    },
-    flow: {
-      "  " => :mark_label, # [Space][Space] Label
-      " \t" => :call_subroutine, # [Space][Tab] Label
-      " \n" => :jump_unconditional, # [Space][LF] Label
-      "\t " => :jump_if_zero, # [Tab][Space] Label
-      "\t\t" => :jump_if_negative, # [Tab][Tab] Label
-      "\t\n" => :end_subroutine, # [Tab][LF]
-      "\n\n" => :end_program # [LF][LF]
-    },
-    io: {
-      "  " => :output_char, # [Space][Space]
-      " \t" => :output_number, # [Space][Tab]
-      "\t " => :input_char, # [Tab][Space]
-      "\t\t" => :input_number # [Tab][Tab]
-    }
-  }.freeze
-
-  COMMAND_PATTERNS = {
-    :stack => / |\n[ \t\n]/,
-    :arithmetic => / [ \t\n]|\t[ \t]/,
-    :heap => /[ \t]/,
-    :flow => / [ \t\n]|\t[ \t\n]|\n\n/,
-    :io => / [ \t]|\t[ \t]/
-  }.freeze
-
-  PARAMS_PATTERNS = {
-    :stack => /[ \t]+\n/,
-    :flow => /[ \t]+\n/
-  }.freeze
-
   def initialize
-    @scanner = nil
+    ## 定義
+    @imps = {
+      " " => :stack,
+      "\t " => :arithmetic,
+      "\t\t" => :heap,
+      "\n" => :flow,
+      "\t\n" => :io
+    }.freeze
+
+    @commands = {
+      stack: {
+        " " => :push, # [Space] Number
+        "\n " => :duplicate, # [LF][Space]
+        "\t " => :n_duplicate, # [Tab][Space] Number
+        "\n\t" => :swap, # [LF][Tab]
+        "\n\n" => :discard, # [LF][LF]
+        "\t\n" => :n_discard # [Tab][LF] Number
+      },
+      arithmetic: {
+        "  " => :add, # [Space][Space]
+        " \t" => :subtract, # [Space][Tab]
+        " \n" => :multiply, # [Space][LF]
+        "\t " => :divide, # [Tab][Space]
+        "\t\t" => :modulo # [Tab][Tab]
+      },
+      heap: {
+        " " => :h_push, # [Space]
+        "\t" => :h_pop # [Tab]
+      },
+      flow: {
+        "  " => :label_mark, # [Space][Space] Label
+        " \t" => :sub_start, # [Space][Tab] Label
+        " \n" => :jump, # [Space][LF] Label
+        "\t " => :jump_zero, # [Tab][Space] Label
+        "\t\t" => :jump_negative, # [Tab][Tab] Label
+        "\t\n" => :sub_end, # [Tab][LF]
+        "\n\n" => :end # [LF][LF]
+      },
+      io: {
+        "  " => :output_char, # [Space][Space]
+        " \t" => :output_num, # [Space][Tab]
+        "\t " => :input_char, # [Tab][Space]
+        "\t\t" => :input_num # [Tab][Tab]
+      }
+    }.freeze
+
+    @command_patterns = {
+      stack: /\A( |\n[ \n\t]|\t[ \n])/,
+      arithmetic: /\A( [ \t\n]|\t[ \t])/,
+      heap: /\A([ \t])/,
+      flow: /\A( [ \t\n]|\t[ \t\n]|\n\n)/,
+      io: /\A( [ \t]|\t[ \t])/
+    }.freeze
+
+    ## ファイル読み込み
+    @code = ARGF.readlines.join
+    @code.gsub!(/[^ \t\n]/, "") # 空白文字以外は削除
+
+    ## 字句解析
+    begin
+      @token_list = tokenize
+    rescue StandardError => e
+      puts "Error: #{e.message}"
+    end
+    puts @token_list.inspect
+
+    @tokens = []
+    @token_list.each_slice(3) do |imp, cmd, par|
+      @tokens << [imp, cmd, par]
+    end
+
+    ## 意味解析
+
   end
 
-  def tokenize(code)
+  def tokenize
     tokens = []
-    @scanner = StringScanner.new(code)
-    return if @scanner == nil
+    scanner = StringScanner.new(@code)
 
-    until @scanner.eos?
+    until scanner.eos?
       # IMP切り出し
-      imp = extract_imp(@scanner)
-      if imp.nil?
-        @scanner.getch
-        next
-      end
+      imp = get_imp(scanner)
+      raise "impが定義されていません。" if imp.nil?
 
       # コマンド切り出し
-      command = extract_command(@scanner, imp)
-      if command.nil?
-        @scanner.getch
-        next
-      end
+      command = get_command(scanner, imp)
+      raise "commandが定義されていません。" if command.nil?
 
-      # パラメータ切り出し
+      # パラメータ切り出し(必要なら)
       params = nil
-      if has_params?(imp, command)
-        params = extract_parameter(@scanner, imp)
-        raise "パラメータが定義されていません。#{@scanner.pos}" unless params
+      if parameter_check(imp, command)
+        params = get_params(scanner)
       end
 
-      tokens << [imp, command, params]
+      tokens << imp << command << params
     end
     tokens
   end
 
-  # -----------------------
-  #  ヘルパーメソッド
-  # -----------------------
-
-  # impの切り出しメソッド
-  def extract_imp(scanner)
-    pattern = /\A( |\n|\t[ \n\t])/
-    IMPS[scanner.scan(pattern)]
+  def get_imp(scanner)
+    if (imp_sc = scanner.scan(/\A( |\n|\t[ \n\t])/))
+      return @imps[imp_sc]
+    end
+    nil
   end
 
-  # commandの切り出しメソッド
-  def extract_command(scanner, imp)
-    pattern = COMMAND_PATTERNS[imp]
-    command = scanner.scan(pattern)
-    COMMANDS[imp][command]
+  def get_command(scanner, imp)
+    pattern = @command_patterns[imp]
+    if (command_sc = scanner.scan(pattern))
+      return @commands[imp][command_sc]
+    end
+    nil
   end
 
-  # 与えられたIMP,commandのとき、paramsが必要とされているかを真偽値で返すメソッド
-  def has_params?(imp, command)
+  def get_params(scanner)
+    if (params_sc = scanner.scan(/\A([ \t]+\n)/))
+      params_sc.chop!
+      return str_to_i(params_sc)
+    end
+    nil
+  end
+
+  # 与えられたimp,commandのとき、paramsが必要とされているかを真偽値で返すメソッド
+  def parameter_check(imp, command)
     case imp
     when :stack
-      [:push, :copy, :slide].include?(command)
+      [:push, :n_duplicate, :n_discard].include?(command)
     when :flow
-      [:mark_label, :call_subroutine, :jump_unconditional, :jump_if_zero, :jump_if_negative].include?(command)
+      [:label_mark, :sub_start, :jump, :jump_zero, :jump_negative].include?(command)
     else
       false
     end
   end
 
-  def extract_parameter(scanner, imp)
-    pattern = PARAMS_PATTERNS[imp]
-    scanner.scan(pattern)
+  def str_to_i(space)
+    ret = []
+    space.chars.each do |sp|
+      case sp
+      when " "
+        ret << "0"
+      when /\t/
+        ret << "1"
+      end
+    end
+    ret.join
   end
+
 end
 
 def main
@@ -142,11 +163,8 @@ def main
     exit
   end
 
-  code = File.read(file_path)
-  ws = Whitespace.new
   begin
-    tokens = ws.tokenize(code)
-    puts tokens.inspect
+    Whitespace.new
   rescue => error
     puts "エラー: #{error}"
   end
