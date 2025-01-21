@@ -63,8 +63,9 @@ class Whitespace
     ## 字句解析
     begin
       @token_list = tokenize
-    rescue StandardError => e
-      puts "Error: #{e.message}"
+    rescue SyntaxError => e
+      puts "構文エラー: #{e.message}"
+      exit
     end
 
     @tokens = []
@@ -78,7 +79,6 @@ class Whitespace
     @heap = Hash.new(0)
     @pc = 0
     @subroutines = []
-    @labels = {}
     @labels = Hash.new do |h, k|
       @tokens.each_with_index do |(imp, cmd, par), idx|
         h[par] = idx if cmd == :label_mark
@@ -88,6 +88,9 @@ class Whitespace
     evaluate
   end
 
+  #================================================
+  # 字句解析
+  #================================================
   def tokenize
     tokens = []
     scanner = StringScanner.new(@code)
@@ -95,17 +98,15 @@ class Whitespace
     until scanner.eos?
       # IMP切り出し
       imp = get_imp(scanner)
-      raise "impが定義されていません。" if imp.nil?
+      raise SyntaxError, "IMPが定義されていません。" if imp.nil?
 
       # コマンド切り出し
       command = get_command(scanner, imp)
-      raise "commandが定義されていません。" if command.nil?
+      raise SyntaxError, "コマンドが定義されていません。" if command.nil?
 
       # パラメータ切り出し(必要なら)
       params = nil
-      if parameter_check(imp, command)
-        params = get_params(scanner)
-      end
+      params = get_params(scanner) if parameter_check(imp, command)
 
       tokens << imp << command << params
     end
@@ -152,59 +153,88 @@ class Whitespace
       case sp
       when " "
         ret << "0"
-      when /\t/
+      when "\t"
         ret << "1"
       end
     end
     ret.join
   end
 
+  #================================================
+  # 意味解析
+  #================================================
   def evaluate
-    loop do
-      imp, cmnd, prmt = @tokens[@pc]
-      @pc += 1
-      case imp
-      when :stack
-        exec_stack(cmnd, prmt)
-      when :arithmetic
-        exec_arithmetic(cmnd)
-      when :heap
-        exec_heap(cmnd)
-      when :flow
-        # exec_flowで:endが来たらbreakする
-        finished = exec_flow(cmnd, prmt)
-        break if finished
-      when :io
-        exec_io(cmnd)
+    begin
+      loop do
+        imp, cmnd, prmt = @tokens[@pc]
+        @pc += 1
+        case imp
+        when :stack
+          exec_stack(cmnd, prmt)
+        when :arithmetic
+          exec_arithmetic(cmnd)
+        when :heap
+          exec_heap(cmnd)
+        when :flow
+          finished = exec_flow(cmnd, prmt)
+          break if finished
+        when :io
+          exec_io(cmnd)
+        else
+          raise SyntaxError, "未知のIMP: #{imp}"
+        end
       end
+    rescue SyntaxError => e
+      puts "構文エラー: #{e.message}"
+      exit 1
+    rescue ZeroDivisionError => e
+      puts "ゼロ除算エラー: #{e.message}"
+      exit 1
+    rescue ArgumentError => e
+      puts "引数エラー: #{e.message}"
+      exit 1
+    rescue StandardError => e
+      puts "実行時エラー: #{e.message}"
+      exit 1
     end
-  rescue => e
-    puts "実行エラー: #{e.message}"
   end
 
+  #================================================
+  # スタック処理
+  #================================================
   def exec_stack(cmnd, prmt)
     case cmnd
     when :push
       @stack.push(prmt)
     when :duplicate
+      raise ArgumentError, "スタック要素不足:duplicate" if @stack.empty?
       @stack.push(@stack.last)
     when :n_duplicate
+      raise ArgumentError, "スタック要素不足:n_duplicate" if @stack.size < 1
       n = convert_to_decimal(@stack.pop)
+      raise ArgumentError, "nがスタックの範囲外です" if n >= @stack.size || n < 0
       @stack.push(@stack[n])
     when :swap
+      raise ArgumentError, "スタック要素不足:swap" if @stack.size < 2
       @stack.push(@stack.slice!(-2))
     when :discard
+      raise ArgumentError, "スタックが空です" if @stack.empty?
       @stack.pop
     when :n_discard
+      raise ArgumentError, "スタック要素不足:n_discard" if @stack.empty?
       idx = convert_to_decimal(@stack.pop)
+      raise ArgumentError, "削除対象がスタック範囲外です" if idx >= @stack.size || idx < 0
       @stack.delete_at(idx)
     else
-      raise "構文エラー #{cmnd}"
+      raise SyntaxError, "不明なスタックコマンド: #{cmnd}"
     end
   end
 
+  #================================================
+  # 算術処理
+  #================================================
   def exec_arithmetic(cmnd)
-    raise "スタック要素不足" if @stack.size < 2
+    raise ArgumentError, "スタック要素不足" if @stack.size < 2
     b = convert_to_decimal(@stack.pop)
     a = convert_to_decimal(@stack.pop)
     ans = case cmnd
@@ -215,13 +245,13 @@ class Whitespace
           when :multiply
             a * b
           when :divide
-            raise "ゼロ除算" if b == 0
+            raise ZeroDivisionError, "0で除算はできません" if b == 0
             a / b
           when :modulo
-            raise "ゼロ除算" if b == 0
+            raise ZeroDivisionError, "0で割った剰余は定義できません" if b == 0
             a % b
           else
-            raise "構文エラー: #{cmnd}"
+            raise SyntaxError, "不明な算術コマンド: #{cmnd}"
           end
 
     if ans < 0
@@ -233,20 +263,28 @@ class Whitespace
     @stack.push(result)
   end
 
+  #================================================
+  # ヒープ処理
+  #================================================
   def exec_heap(cmnd)
     case cmnd
     when :h_push
+      raise ArgumentError, "スタック要素不足(h_push)" if @stack.size < 2
       value = @stack.pop
       addr = convert_to_decimal(@stack.pop)
       @heap[addr] = value
     when :h_pop
+      raise ArgumentError, "スタックが空のため読み出せません(h_pop)" if @stack.empty?
       addr = convert_to_decimal(@stack.pop)
       @stack.push(@heap.fetch(addr, "0"))
     else
-      raise "構文エラー #{cmnd}"
+      raise SyntaxError, "不明なヒープコマンド: #{cmnd}"
     end
   end
 
+  #================================================
+  # フロー制御
+  #================================================
   def exec_flow(cmnd, prmt)
     case cmnd
     when :label_mark
@@ -257,33 +295,41 @@ class Whitespace
     when :jump
       @pc = @labels[prmt]
     when :jump_zero
-      @pc = @labels[prmt] if convert_to_decimal(@stack.pop).zero?
+      val = convert_to_decimal(@stack.pop)
+      @pc = @labels[prmt] if val.zero?
     when :jump_negative
-      @pc = @labels[prmt] if convert_to_decimal(@stack.pop).negative?
+      val = convert_to_decimal(@stack.pop)
+      @pc = @labels[prmt] if val < 0
     when :sub_end
       @pc = @subroutines.pop
     when :end
       return true
-    else
-      raise "構文エラー #{cmnd}"
     end
     false
   end
 
+  #================================================
+  # IO
+  #================================================
   def exec_io(cmnd)
     case cmnd
     when :output_char
+      raise ArgumentError, "スタックが空のため出力できません" if @stack.empty?
       print convert_to_decimal(@stack.pop).chr
     when :output_num
+      raise ArgumentError, "スタックが空のため出力できません" if @stack.empty?
       print convert_to_decimal(@stack.pop)
     when :input_char
+      raise ArgumentError, "スタックが空のため入力先アドレスが取得できません" if @stack.empty?
       addr = convert_to_decimal(@stack.pop)
       c = $stdin.getc
       @heap[addr] = encode_number(c.ord)
     when :input_num
+      raise ArgumentError, "スタックが空のため入力先アドレスが取得できません" if @stack.empty?
       addr = convert_to_decimal(@stack.pop)
       n = $stdin.gets.to_i
       @heap[addr] = encode_number(n)
+      raise SyntaxError, "不明なIOコマンド: #{cmnd}"
     end
   end
 
@@ -298,7 +344,7 @@ class Whitespace
   def convert_to_decimal(bin_str)
     sign = bin_str[0]
     value = bin_str[1..-1].to_i(2)
-    sign == '1' ? -value : value
+    sign == "1" ? -value : value
   end
 end
 
@@ -316,8 +362,12 @@ def main
 
   begin
     Whitespace.new
-  rescue => error
-    puts "エラー: #{error}"
+  rescue SyntaxError => e
+    puts "構文エラー: #{e.message}"
+    exit 1
+  rescue StandardError => e
+    puts "エラー: #{e.message}"
+    exit 1
   end
 end
 
