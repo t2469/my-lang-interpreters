@@ -161,12 +161,8 @@ class Whitespace
 
   def evaluate
     loop do
-      # 範囲外ならエラーにするか終了する
-      raise "命令が不足しています" if @pc < 0 || @pc >= @tokens.size
-
       imp, cmnd, prmt = @tokens[@pc]
       @pc += 1
-
       case imp
       when :stack
         exec_stack(cmnd, prmt)
