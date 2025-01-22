@@ -109,19 +109,30 @@ class Calc
   end
 
   def initialize
-    loop do
-      print 'exp > '
-      code = STDIN.gets.chomp
-      if ["quit", "q", "bye", "exit"].include?(code)
-        exit
-      end
-
+    if !ARGV.empty?
+      code = ARGV[0]
       @scanner = StringScanner.new(code)
       begin
         ex = expression
         puts eval(ex)
       rescue Exception
         puts 'Bad Expression'
+      end
+    else
+      loop do
+        print 'exp > '
+        code = STDIN.gets.chomp
+        if ["quit", "q", "bye", "exit"].include?(code)
+          exit
+        end
+
+        @scanner = StringScanner.new(code)
+        begin
+          ex = expression
+          puts eval(ex)
+        rescue Exception
+          puts 'Bad Expression'
+        end
       end
     end
   end
