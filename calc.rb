@@ -2,7 +2,7 @@
 require 'strscan'
 
 class Calc
-  DEBUG = false
+  DEBUG = true
 
   @@keywords = {
     '+' => :add,
