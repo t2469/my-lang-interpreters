@@ -1,7 +1,7 @@
 #!/usr/bin/ruby
 require 'strscan'
 
-class Lang
+class Jp
   DEBUG = true
 
   @@keywords = {
@@ -109,16 +109,12 @@ class Lang
   end
 
   def initialize
-    if !ARGV.empty?
-      code = ARGV[0]
-      @scanner = StringScanner.new(code)
-      begin
-        ex = expression
-        puts eval(ex)
-      rescue Exception
-        puts 'Bad Expression'
-      end
-    else
+    if ARGV.empty?
+      # ファイルを指定しなければいけない場合
+      # puts "ファイルを指定してください。"
+      # exit
+
+      # 今回は逐次実行
       loop do
         print 'exp > '
         code = STDIN.gets.chomp
@@ -133,6 +129,13 @@ class Lang
         rescue Exception
           puts 'Bad Expression'
         end
+      end
+    else
+      # ファイルが指定してあるのなら、そのプログラムを実行する
+      file_path = ARGV[0]
+      unless File.exist?(file_path)
+        puts "ファイルが存在しません: #{file_path}"
+        exit
       end
     end
   end
