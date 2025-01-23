@@ -1,6 +1,17 @@
 #!/usr/bin/ruby
 require 'strscan'
 
+# 生成規則
+# 文列 = 文 (文)*
+# 文 = 代入文 | ‘もし’文 | '繰り返し’'文 | print文 | '{' 文列 '}'
+# 代入文 = 変数 ':=' 式 ';'
+# もし文 = 'もし' 式 'ならば' 文 'そうでないなら' 文
+# 繰り返し文 = '繰り返し' 式 文
+# 表示文 = '表示' 式 ';'
+# 式 = 項 (( '+' | '-' ) 項)*
+# 項 = 因子 (( '*' | '/' ) 因子)*
+# 因子 := '-'? (リテラル | '(' 式 ')')
+
 class Jp
   DEBUG = true
   @@keywords = {
@@ -22,20 +33,16 @@ class Jp
     '}' => :rbrace
   }.freeze
 
-  # 式 := 項 (('+'|'-') 項)*
-  # 項 := 因子 (('*'|'/') 因子)*
-  # 因子 := '-'? (リテラル | '(' 式 ')')
-
   def get_token
-    if ret = @scanner.scan(/\A\s*(#{@@keywords.keys.map { |t| Regexp.escape(t) }.join('|')})/)
+    if (ret = @scanner.scan(/\A\s*(#{@@keywords.keys.map { |t| Regexp.escape(t) }.join('|')})/))
       return @@keywords[ret]
     end
 
-    if ret = @scanner.scan(/\A\s*([0-9.]+)/)
+    if (ret = @scanner.scan(/\A\s*([0-9.]+)/))
       return ret.to_f
     end
 
-    if ret = @scanner.scan(/\A\s*\z/)
+    if (ret = @scanner.scan(/\A\s*\z/))
       return nil
     end
 
