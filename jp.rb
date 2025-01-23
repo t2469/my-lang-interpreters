@@ -48,7 +48,7 @@ class Jp
       end
       result = [token, result, term]
     end
-    p ['E', result] if Calc::DEBUG
+    p ['E', result] if Jp::DEBUG
     return result
   end
 
@@ -62,7 +62,7 @@ class Jp
       end
       result = [token, result, factor]
     end
-    p ['T', result] if Calc::DEBUG
+    p ['T', result] if Jp::DEBUG
     return result
   end
 
@@ -75,14 +75,14 @@ class Jp
     end
 
     if token.is_a? Numeric
-      p ['F', token * minusflg] if Calc::DEBUG
+      p ['F', token * minusflg] if Jp::DEBUG
       return token * minusflg
     elsif token == :lpar
       result = expression
       unless get_token == :rpar
         raise Exception, "unexpected token"
       end
-      p ['F', [:mul, minusflg, result]] if Calc::DEBUG
+      p ['F', [:mul, minusflg, result]] if Jp::DEBUG
       return [:mul, minusflg, result]
     else
       raise Exception, "unexpected token"
@@ -149,4 +149,4 @@ class Jp
   end
 end
 
-Calc.new
+Jp.new
