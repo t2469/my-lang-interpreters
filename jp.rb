@@ -3,7 +3,6 @@ require 'strscan'
 
 class Jp
   DEBUG = true
-
   @@keywords = {
     '+' => :add,
     '-' => :sub,
@@ -11,7 +10,16 @@ class Jp
     '/' => :div,
     '%' => :mod,
     '(' => :lpar,
-    ')' => :rpar
+    ')' => :rpar,
+    ':=' => :assign,
+    ';' => :semi,
+    'もし' => :if,
+    'ならば' => :then,
+    'そうでないなら' => :else,
+    '繰り返し' => :for,
+    '出力' => :print,
+    '{' => :lbrace,
+    '}' => :rbrace
   }
 
   # 式 := 項 (('+'|'-') 項)*
@@ -38,6 +46,9 @@ class Jp
     @scanner.unscan
   end
 
+  #================================================
+  # パーザ
+  #================================================
   def expression
     result = term
     while true
@@ -114,7 +125,7 @@ class Jp
       # puts "ファイルを指定してください。"
       # exit
 
-      # 今回は逐次実行
+      # 逐次実行
       loop do
         print 'exp > '
         code = STDIN.gets.chomp
@@ -137,8 +148,8 @@ class Jp
         puts "ファイルが存在しません: #{file_path}"
         exit
       end
-      code = File.read(file_path)
-      @scanner = StringScanner.new(code)
+      @code = File.read(file_path)
+      @scanner = StringScanner.new(@code)
       begin
         ex = expression
         puts eval(ex)
