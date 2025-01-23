@@ -137,6 +137,14 @@ class Jp
         puts "ファイルが存在しません: #{file_path}"
         exit
       end
+      code = File.read(file_path)
+      @scanner = StringScanner.new(code)
+      begin
+        ex = expression
+        puts eval(ex)
+      rescue Exception
+        puts 'Bad Expression'
+      end
     end
   end
 end
