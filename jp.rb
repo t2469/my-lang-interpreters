@@ -1,7 +1,9 @@
 #!/usr/bin/ruby
 require 'strscan'
 
-# 生成規則
+#================================================
+# 生成規則（文法定義）
+#================================================
 # 文列 = 文 (文)*
 # 文 = 代入文 | ‘もし’文 | '繰り返し’'文 | print文 | '{' 文列 '}'
 # 代入文 = 変数 ':=' 式 ';'
@@ -14,6 +16,10 @@ require 'strscan'
 
 class Jp
   DEBUG = true
+
+  #================================================
+  # 字句解析用の変数定義
+  #================================================
   @@keywords = {
     '+' => :add,
     '-' => :sub,
@@ -33,15 +39,22 @@ class Jp
     '}' => :rbrace
   }.freeze
 
+  #================================================
+  # 字句解析(Lexer)
+  #================================================
+  # 入力文字列をトークンに分割
   def get_token
+    # キーワードのマッチング(演算子や予約語)
     if (ret = @scanner.scan(/\A\s*(#{@@keywords.keys.map { |t| Regexp.escape(t) }.join('|')})/))
       return @@keywords[ret]
     end
 
+    # 数値リテラルの抽出(整数と小数)
     if (ret = @scanner.scan(/\A\s*([0-9.]+)/))
       return ret.to_f
     end
 
+    # 入力終了判定
     if (ret = @scanner.scan(/\A\s*\z/))
       return nil
     end
@@ -49,13 +62,15 @@ class Jp
     return :bad_token
   end
 
+  # トークンを1つ戻す(パーザの先読みに使用)
   def unget_token
     @scanner.unscan
   end
 
   #================================================
-  # パーザ
+  # 構文解析(Parser)
   #================================================
+  # 式の解析
   def expression
     result = term
     while true
@@ -70,6 +85,7 @@ class Jp
     return result
   end
 
+  # 項の解析
   def term
     result = factor
     while true
@@ -84,6 +100,7 @@ class Jp
     return result
   end
 
+  # 因子の解析(数値/括弧/単項演算子)
   def factor
     token = get_token
     minusflg = 1
@@ -107,6 +124,10 @@ class Jp
     end
   end
 
+  #================================================
+  # 意味解析(Evaluator)
+  #================================================
+  # 抽象構文木(AST)を評価・実行
   def eval(exp)
     if exp.instance_of?(Array)
       case exp[0]
@@ -126,19 +147,15 @@ class Jp
     end
   end
 
+  #================================================
+  # 実行環境
+  #================================================
   def initialize
     if ARGV.empty?
-      # ファイルを指定しなければいけない場合
-      # puts "ファイルを指定してください。"
-      # exit
-
-      # 逐次実行
       loop do
         print 'exp > '
         code = STDIN.gets.chomp
-        if ["quit", "q", "bye", "exit"].include?(code)
-          exit
-        end
+        exit if ["quit", "q", "bye", "exit"].include?(code)
 
         @scanner = StringScanner.new(code)
         begin
@@ -149,7 +166,7 @@ class Jp
         end
       end
     else
-      # ファイルが指定してあるのなら、そのプログラムを実行する
+      # ファイル実行
       file_path = ARGV[0]
       unless File.exist?(file_path)
         puts "ファイルが存在しません: #{file_path}"
