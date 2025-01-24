@@ -131,7 +131,7 @@ class Jp
     else
       # どれでもなければ、トークンを戻して終了(あるいはエラー)
       unget_token
-      return nil
+      nil
     end
   end
 
@@ -149,7 +149,7 @@ class Jp
       result = [token, result, term]
     end
     p ['E', result] if Jp::DEBUG
-    return result
+    result
   end
 
   #-----------------------------------------------
@@ -166,7 +166,7 @@ class Jp
       result = [token, result, factor]
     end
     p ['T', result] if Jp::DEBUG
-    return result
+    result
   end
 
   #-----------------------------------------------
@@ -174,19 +174,18 @@ class Jp
   #-----------------------------------------------
   def factor
     token = get_token
-    minusflg = 1
+    minus_flg = 1
     if token == :sub
-      minusflg = -1
+      minus_flg = -1
       token = get_token
     end
 
     if token.is_a? Numeric
-      p ['F', token * minusflg] if Jp::DEBUG
-      return token * minusflg
+      p ['F', token * minus_flg] if Jp::DEBUG
+      token * minus_flg
     elsif token.is_a?(Array) && token[0] == :var
-      # 単項マイナスがついていれば後で演算に組み込む
       var_node = [:var, token[1]]
-      if minusflg == -1
+      if minus_flg == -1
         var_node = [:mul, -1, var_node]
       end
       p ['F(var)', var_node] if DEBUG
@@ -196,8 +195,8 @@ class Jp
       unless get_token == :rpar
         raise Exception, "unexpected token"
       end
-      p ['F', [:mul, minusflg, result]] if Jp::DEBUG
-      return [:mul, minusflg, result]
+      p ['F', [:mul, minus_flg, result]] if Jp::DEBUG
+      return [:mul, minus_flg, result]
     else
       raise Exception, "unexpected token"
     end
@@ -237,8 +236,7 @@ class Jp
         when :sub then left_val - right_val
         when :mul then left_val * right_val
         when :div
-          # 0除算対策
-          raise "0で割ることはできません" if right_val == 0
+          raise "0で割ることはできません" if right_val == 0 # 0除算対策
           left_val.to_f / right_val
         end
       else
