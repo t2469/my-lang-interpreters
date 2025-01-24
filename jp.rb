@@ -55,7 +55,8 @@ class Jp
       '<' => :lt
     }.freeze
 
-    @space = {} # 変数を管理するハッシュ
+    # 変数を管理するハッシュ
+    @space = {}
 
     code = File.read(file_path)
     @scanner = StringScanner.new(code)
@@ -104,7 +105,9 @@ class Jp
   # 構文解析(Parser)
   #================================================
 
+  #-----------------------------------------------
   # 文列 = 文 (文)*
+  #-----------------------------------------------
   def parse_statements
     stmts = []
     while (stmt = parse_statement)
@@ -113,34 +116,91 @@ class Jp
     stmts
   end
 
-  # 文 = 代入文 | ‘もし’文 | '繰り返し’'文 | print文 | '{' 文列 '}'
+  #-----------------------------------------------
+  # 文 = 代入文 | もし文 | 繰り返し文 | 出力文 | {文列}
+  #-----------------------------------------------
   def parse_statement
     token = get_token
-    return nil if token.nil? # トークンが無ければ文なし
+    return nil if token.nil? # もうトークンが無ければ文なし
 
-    if token.is_a?(Array) && token[0] == :var
-      var_name = token[1]
-      # 次に代入演算子が来るかチェック
-      if get_token == :assign
-        expr = expression
-        # 最後に ; が来るかチェック
-        expect(:semi, "代入文の末尾に ; がありません")
-        return [:assign, var_name, expr]
-      else
-        raise "代入演算子 ':=' が必要です。"
+    case token
+    when :print
+      # 出力文: 出力 式 ;
+      exp = expression
+      expect(:semi, "出力文の末尾に ';' がありません")
+      return [:print, exp]
+
+    when :if
+      return if_statement
+
+    when :for
+      return for_statement
+
+    when :lbrace
+      # { 文列 }
+      block_stmts = []
+      while true
+        token = get_token
+        if token == :rbrace # } でブロック終わり
+          break
+        else
+          unget_token
+          stmt = parse_statement
+          if stmt
+            block_stmts << stmt
+          else
+            raise "ブロック内で文を解析できませんでした"
+          end
+        end
       end
-
-    elsif token == :print
-      # 出力文
-      expr = expression
-      expect(:semi, "出力文の末尾に ; がありません")
-      return [:print, expr]
+      return [:block, block_stmts]
 
     else
-      # どれでもなければ、トークンを戻して終了
+      if token.is_a?(Array) && token[0] == :var
+        var_name = token[1]
+        if get_token == :assign
+          expr = expression
+          expect(:semi, "代入文の末尾に ';' がありません")
+          return [:assign, var_name, expr]
+        else
+          raise "代入演算子 ':=' が必要です。"
+        end
+      end
       unget_token
-      nil
+      return nil
     end
+  end
+
+  #-----------------------------------------------
+  # もし文 = 'もし' 式 'ならば' 文 'そうでないなら' 文
+  #-----------------------------------------------
+  def if_statement
+    # もし の次は 式
+    exp = expression
+
+    # 'ならば'
+    expect(:then, "もし文に 'ならば' がありません")
+
+    then_stmt = parse_statement
+    raise "もし文の 'ならば' の後に文がありません" unless then_stmt
+
+    # 'そうでないなら'
+    expect(:else, "もし文に 'そうでないなら' がありません")
+
+    else_stmt = parse_statement
+    raise "もし文の 'そうでないなら' の後に文がありません" unless else_stmt
+
+    [:if, exp, then_stmt, else_stmt]
+  end
+
+  #-----------------------------------------------
+  # 繰り返し文 = '繰り返し' 式 文
+  #-----------------------------------------------
+  def for_statement
+    exp = expression
+    stmt = parse_statement
+    raise "繰り返し文の後に文がありません" unless stmt
+    [:for, exp, stmt]
   end
 
   #-----------------------------------------------
@@ -150,11 +210,13 @@ class Jp
     result = term
     while true
       token = get_token
-      unless token == :add or token == :sub
-        unget_token
+      case token
+      when :add, :sub, :eq, :neq, :gt, :gte, :lt, :lte
+        result = [token, result, term]
+      else
+        unget_token if token
         break
       end
-      result = [token, result, term]
     end
     p ['E', result] if Jp::DEBUG
     result
@@ -167,18 +229,20 @@ class Jp
     result = factor
     while true
       token = get_token
-      unless token == :mul or token == :div
-        unget_token
+      case token
+      when :mul, :div, :mod
+        result = [token, result, factor]
+      else
+        unget_token if token
         break
       end
-      result = [token, result, factor]
     end
     p ['T', result] if Jp::DEBUG
     result
   end
 
   #-----------------------------------------------
-  # 因子 := '-'? (リテラル | 変数 | '(' 式 ')' )
+  # 因子 = '-'? (リテラル | 変数 | '(' 式 ')' )
   #-----------------------------------------------
   def factor
     token = get_token
@@ -219,41 +283,78 @@ class Jp
     when Array
       case node[0]
       when :assign
-        # node = [:assign, var_name, expr]
+        # node = [:assign, var_name, exp]
         var_name = node[1]
         value = eval(node[2])
         @space[var_name] = value
         return value
 
       when :print
-        # node = [:print, expr]
+        # node = [:print, exp]
         val = eval(node[1])
         puts val
         return val
 
+      when :if
+        # [:if, exp, then_stmt, else_stmt]
+        cond_val = eval(node[1])
+        # 0以外なら真
+        if cond_val != 0
+          eval(node[2])
+        else
+          eval(node[3])
+        end
+
+      when :for
+        # [:for, exp, stmt]
+        count_val = eval(node[1])
+        count_val.to_i.times do
+          eval(node[2])
+        end
+
+      when :block
+        # [:block, [stmts...]]
+        node[1].each do |s|
+          eval(s)
+        end
+
       when :var
-        # node = [:var, var_name]
         var_name = node[1]
         return @space[var_name] || raise("未定義の変数: #{var_name}")
 
-      when :add, :sub, :mul, :div
-        left_val = eval(node[1])
+      when :add
+        eval(node[1]) + eval(node[2])
+      when :sub
+        eval(node[1]) - eval(node[2])
+      when :mul
+        eval(node[1]) * eval(node[2])
+      when :div
         right_val = eval(node[2])
-        case node[0]
-        when :add then left_val + right_val
-        when :sub then left_val - right_val
-        when :mul then left_val * right_val
-        when :div
-          raise "0で割ることはできません" if right_val == 0 # 0除算対策
-          left_val.to_f / right_val
-        end
+        raise "0で割ることはできません" if right_val == 0
+        eval(node[1]).to_f / right_val
+      when :mod
+        left_val = eval(node[1]).to_i
+        right_val = eval(node[2]).to_i
+        raise "0でmod(%)演算はできません" if right_val == 0
+        left_val % right_val
+      when :eq
+        eval(node[1]) == eval(node[2]) ? 1 : 0
+      when :neq
+        eval(node[1]) != eval(node[2]) ? 1 : 0
+      when :gt
+        eval(node[1]) > eval(node[2]) ? 1 : 0
+      when :gte
+        eval(node[1]) >= eval(node[2]) ? 1 : 0
+      when :lt
+        eval(node[1]) < eval(node[2]) ? 1 : 0
+      when :lte
+        eval(node[1]) <= eval(node[2]) ? 1 : 0
       else
         # それ以外は未対応
         raise "未知のノードです: #{node[0]}"
       end
 
     when Integer, Float
-      # 数値リテラル
       node
     else
       raise "評価不能なノードです: #{node.inspect}"
