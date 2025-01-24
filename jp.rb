@@ -17,52 +17,77 @@ require 'strscan'
 class Jp
   DEBUG = true
 
-  #================================================
-  # 字句解析用の変数定義
-  #================================================
-  @@keywords = {
-    '+' => :add,
-    '-' => :sub,
-    '*' => :mul,
-    '/' => :div,
-    '%' => :mod,
-    '(' => :lpar,
-    ')' => :rpar,
-    ':=' => :assign,
-    ';' => :semi,
-    'もし' => :if,
-    'ならば' => :then,
-    'そうでないなら' => :else,
-    '繰り返し' => :for,
-    '出力' => :print,
-    '{' => :lbrace,
-    '}' => :rbrace
-  }.freeze
+  def initialize
+    if ARGV.empty?
+      puts "ファイルを指定してください。"
+      exit
+    end
+
+    file_path = ARGV[0]
+    unless File.exist?(file_path)
+      puts "ファイルが存在しません: #{file_path}"
+      exit
+    end
+
+    # 字句解析用のキーワード定義
+    @keywords = {
+      '+' => :add,
+      '-' => :sub,
+      '*' => :mul,
+      '/' => :div,
+      '%' => :mod,
+      '(' => :lpar,
+      ')' => :rpar,
+      ':=' => :assign,
+      ';' => :semi,
+      'もし' => :if,
+      'ならば' => :then,
+      'そうでないなら' => :else,
+      '繰り返し' => :for,
+      '出力' => :print,
+      '{' => :lbrace,
+      '}' => :rbrace
+    }.freeze
+    @space = {} # 変数を管理するハッシュ
+    code = File.read(file_path)
+    @scanner = StringScanner.new(code)
+    begin
+      statements = parse_statements
+      statements.each { |stmt| eval(stmt) }
+    rescue => e
+      puts "エラー: #{e.message}"
+    end
+  end
 
   #================================================
   # 字句解析(Lexer)
   #================================================
-  # 入力文字列をトークンに分割
   def get_token
+    # 空白をスキップ
+    @scanner.skip(/\s+/)
+    return nil if @scanner.eos?
+
     # キーワードのマッチング(演算子や予約語)
-    if (ret = @scanner.scan(/\A\s*(#{@@keywords.keys.map { |t| Regexp.escape(t) }.join('|')})/))
-      return @@keywords[ret]
+    @keywords.keys.each do |key|
+      if @scanner.scan(Regexp.new(Regexp.escape(key)))
+        return @keywords[key]
+      end
     end
 
-    # 数値リテラルの抽出(整数と小数)
-    if (ret = @scanner.scan(/\A\s*([0-9.]+)/))
-      return ret.to_f
+    # 変数名
+    if (var = @scanner.scan(/\A[a-zA-Z_]\w*/))
+      return [:var, var]
     end
 
-    # 入力終了判定
-    if (ret = @scanner.scan(/\A\s*\z/))
-      return nil
+    # 数値(整数や小数)
+    if (num = @scanner.scan(/\A\d+(\.\d+)?/))
+      return num.include?('.') ? num.to_f : num.to_i
     end
 
-    return :bad_token
+    bad = @scanner.getch
+    raise "不正なトークンです: #{bad}"
   end
 
-  # トークンを1つ戻す(パーザの先読みに使用)
   def unget_token
     @scanner.unscan
   end
@@ -70,7 +95,49 @@ class Jp
   #================================================
   # 構文解析(Parser)
   #================================================
-  # 式の解析
+
+  # 文列 = 文 (文)*
+  def parse_statements
+    stmts = []
+    while (stmt = parse_statement)
+      stmts << stmt
+    end
+    stmts
+  end
+
+  # 文 = 代入文 | 表示文
+  def parse_statement
+    token = get_token
+    return nil if token.nil? # トークンが無ければ文なし
+
+    if token.is_a?(Array) && token[0] == :var
+      var_name = token[1]
+      # 次に代入演算子が来るかチェック
+      if get_token == :assign
+        expr = expression
+        # 最後に ; が来るかチェック
+        expect(:semi, "代入文の末尾に ; がありません")
+        return [:assign, var_name, expr]
+      else
+        raise "代入演算子 ':=' が必要です。"
+      end
+
+    elsif token == :print
+      # 表示文
+      expr = expression
+      expect(:semi, "表示文の末尾に ; がありません")
+      return [:print, expr]
+
+    else
+      # どれでもなければ、トークンを戻して終了(あるいはエラー)
+      unget_token
+      return nil
+    end
+  end
+
+  #-----------------------------------------------
+  # 式 = 項 (( '+' | '-' ) 項)*
+  #-----------------------------------------------
   def expression
     result = term
     while true
@@ -85,7 +152,9 @@ class Jp
     return result
   end
 
-  # 項の解析
+  #-----------------------------------------------
+  # 項 = 因子 (( '*' | '/' ) 因子)*
+  #-----------------------------------------------
   def term
     result = factor
     while true
@@ -100,7 +169,9 @@ class Jp
     return result
   end
 
-  # 因子の解析(数値/括弧/単項演算子)
+  #-----------------------------------------------
+  # 因子 := '-'? (リテラル | 変数 | '(' 式 ')' )
+  #-----------------------------------------------
   def factor
     token = get_token
     minusflg = 1
@@ -112,6 +183,14 @@ class Jp
     if token.is_a? Numeric
       p ['F', token * minusflg] if Jp::DEBUG
       return token * minusflg
+    elsif token.is_a?(Array) && token[0] == :var
+      # 単項マイナスがついていれば後で演算に組み込む
+      var_node = [:var, token[1]]
+      if minusflg == -1
+        var_node = [:mul, -1, var_node]
+      end
+      p ['F(var)', var_node] if DEBUG
+      return var_node
     elsif token == :lpar
       result = expression
       unless get_token == :rpar
@@ -128,60 +207,61 @@ class Jp
   # 意味解析(Evaluator)
   #================================================
   # 抽象構文木(AST)を評価・実行
-  def eval(exp)
-    if exp.instance_of?(Array)
-      case exp[0]
-      when :add
-        return eval(exp[1]) + eval(exp[2])
-      when :sub
-        return eval(exp[1]) - eval(exp[2])
-      when :mul
-        return eval(exp[1]) * eval(exp[2])
-      when :div
-        return eval(exp[1]) / eval(exp[2])
-      else
-        return exp
-      end
-    else
-      return exp
-    end
-  end
+  def eval(node)
+    case node
+    when Array
+      case node[0]
+      when :assign
+        # node = [:assign, var_name, expr]
+        var_name = node[1]
+        value = eval(node[2])
+        @space[var_name] = value
+        return value
 
-  #================================================
-  # 実行環境
-  #================================================
-  def initialize
-    if ARGV.empty?
-      loop do
-        print 'exp > '
-        code = STDIN.gets.chomp
-        exit if ["quit", "q", "bye", "exit"].include?(code)
+      when :print
+        # node = [:print, expr]
+        val = eval(node[1])
+        puts val
+        return val
 
-        @scanner = StringScanner.new(code)
-        begin
-          ex = expression
-          puts eval(ex)
-        rescue Exception
-          puts 'Bad Expression'
+      when :var
+        # node = [:var, var_name]
+        var_name = node[1]
+        return @space[var_name] || raise("未定義の変数: #{var_name}")
+
+      when :add, :sub, :mul, :div
+        left_val = eval(node[1])
+        right_val = eval(node[2])
+        case node[0]
+        when :add then left_val + right_val
+        when :sub then left_val - right_val
+        when :mul then left_val * right_val
+        when :div
+          # 0除算対策
+          raise "0で割ることはできません" if right_val == 0
+          left_val.to_f / right_val
         end
+      else
+        # それ以外は未対応
+        raise "未知のノードです: #{node[0]}"
       end
+
+    when Integer, Float
+      # 数値リテラル
+      node
     else
-      # ファイル実行
-      file_path = ARGV[0]
-      unless File.exist?(file_path)
-        puts "ファイルが存在しません: #{file_path}"
-        exit
-      end
-      @code = File.read(file_path)
-      @scanner = StringScanner.new(@code)
-      begin
-        ex = expression
-        puts eval(ex)
-      rescue Exception
-        puts 'Bad Expression'
-      end
+      raise "評価不能なノードです: #{node.inspect}"
     end
   end
+
+  #================================================
+  # ヘルパー
+  #================================================
+  def expect(token_kind, err_msg)
+    t = get_token
+    raise err_msg unless t == token_kind
+  end
+
 end
 
 Jp.new
