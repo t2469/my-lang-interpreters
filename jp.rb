@@ -2,14 +2,14 @@
 require 'strscan'
 
 #================================================
-# 生成規則（文法定義）
+# 生成規則
 #================================================
 # 文列 = 文 (文)*
 # 文 = 代入文 | ‘もし’文 | '繰り返し’'文 | print文 | '{' 文列 '}'
 # 代入文 = 変数 ':=' 式 ';'
 # もし文 = 'もし' 式 'ならば' 文 'そうでないなら' 文
 # 繰り返し文 = '繰り返し' 式 文
-# 表示文 = '表示' 式 ';'
+# 出力文 = '出力' 式 ';'
 # 式 = 項 (( '+' | '-' ) 項)*
 # 項 = 因子 (( '*' | '/' ) 因子)*
 # 因子 := '-'? (リテラル | '(' 式 ')')
@@ -46,9 +46,17 @@ class Jp
       '繰り返し' => :for,
       '出力' => :print,
       '{' => :lbrace,
-      '}' => :rbrace
+      '}' => :rbrace,
+      '==' => :eq,
+      '!=' => :neq,
+      '>=' => :gte,
+      '<=' => :lte,
+      '>' => :gt,
+      '<' => :lt
     }.freeze
+
     @space = {} # 変数を管理するハッシュ
+
     code = File.read(file_path)
     @scanner = StringScanner.new(code)
     begin
@@ -105,7 +113,7 @@ class Jp
     stmts
   end
 
-  # 文 = 代入文 | 表示文
+  # 文 = 代入文 | ‘もし’文 | '繰り返し’'文 | print文 | '{' 文列 '}'
   def parse_statement
     token = get_token
     return nil if token.nil? # トークンが無ければ文なし
@@ -123,13 +131,13 @@ class Jp
       end
 
     elsif token == :print
-      # 表示文
+      # 出力文
       expr = expression
-      expect(:semi, "表示文の末尾に ; がありません")
+      expect(:semi, "出力文の末尾に ; がありません")
       return [:print, expr]
 
     else
-      # どれでもなければ、トークンを戻して終了(あるいはエラー)
+      # どれでもなければ、トークンを戻して終了
       unget_token
       nil
     end
