@@ -93,6 +93,11 @@ class Jp
       return num.include?('.') ? num.to_f : num.to_i
     end
 
+    # 文字列(ダブルクォートで囲まれた部分)
+    if (str = @scanner.scan(/"[^"]*"/))
+      return [:string, str[1..-2]]
+    end
+
     bad = @scanner.getch
     raise "不正なトークンです: #{bad}"
   end
@@ -256,12 +261,17 @@ class Jp
       p ['F', token * minus_flg] if Jp::DEBUG
       token * minus_flg
     elsif token.is_a?(Array) && token[0] == :var
+      # 変数
       var_node = [:var, token[1]]
       if minus_flg == -1
         var_node = [:mul, -1, var_node]
       end
       p ['F(var)', var_node] if DEBUG
       return var_node
+    elsif token.is_a?(Array) && token[0] == :string
+      # 文字列
+      p ['F(str)', token] if Jp::DEBUG
+      return token
     elsif token == :lpar
       result = expression
       unless get_token == :rpar
@@ -321,6 +331,9 @@ class Jp
       when :var
         var_name = node[1]
         return @space[var_name] || raise("未定義の変数: #{var_name}")
+
+      when :string
+        node[1]
 
       when :add
         eval(node[1]) + eval(node[2])
