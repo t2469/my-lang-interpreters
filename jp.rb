@@ -256,8 +256,8 @@ class Jp
   # ヘルパー
   #================================================
   def expect(token_kind, err_msg)
-    t = get_token
-    raise err_msg unless t == token_kind
+    token = get_token
+    raise err_msg unless token == token_kind
   end
 
 end
