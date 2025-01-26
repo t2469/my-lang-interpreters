@@ -14,4 +14,4 @@
 ruby whitespace.rb samples/hello.ws
 
 # my-lang（サンプルファイル例: samples/fibonacci.myl）
-ruby my_lang.rb samples/fib.jp
+ruby jp.rb samples/fib.jp
