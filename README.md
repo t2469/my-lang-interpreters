@@ -1,4 +1,4 @@
-# text-processing-rb
+# ruby-lang-interpreters
 
 [![Ruby](https://img.shields.io/badge/-Ruby-cc342d?style=flat&logo=ruby)](https://ruby-lang.org)
 
