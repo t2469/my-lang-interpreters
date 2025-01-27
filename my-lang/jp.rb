@@ -363,14 +363,13 @@ class Jp
       when :lte
         eval(node[1]) <= eval(node[2]) ? 1 : 0
       else
-        # それ以外は未対応
-        raise "未知のノードです: #{node[0]}"
+        raise "#{node[0]}"
       end
 
     when Integer, Float
       node
     else
-      raise "評価不能なノードです: #{node.inspect}"
+      raise "#{node.inspect}"
     end
   end
 
