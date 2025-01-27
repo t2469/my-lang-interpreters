@@ -10,12 +10,25 @@ require 'strscan'
 # もし文 = 'もし' 式 'ならば' 文 'そうでないなら' 文
 # 繰り返し文 = '繰り返し' 式 文
 # 出力文 = '出力' 式 ';'
-# 式 = 項 (( '+' | '-' ) 項)*
-# 項 = 因子 (( '*' | '/' ) 因子)*
-# 因子 := '-'? (リテラル | '(' 式 ')')
+# 戻る文 = '戻る' 式 ';'
+# 関数定義 = '関数' 変数 '(' パラメータリスト ')' 文
+# 式 = 項 (( '+' | '-' | '==' | '!=' | '>' | '>=' | '<' | '<=' ) 項)*
+# 項 = 因子 (( '*' | '/' | '%' ) 因子)*
+# 因子 = '-'? (リテラル | 変数 | '(' 式 ')' | 関数呼び出し )
+# 関数呼び出し = 変数 '(' 引数リスト ')'
+# パラメータリスト = (変数 (',' 変数)*)?
+# 引数リスト = (式 (',' 式)*)?
 
 class Jp
-  DEBUG = true
+  DEBUG = false
+
+  class Return < StandardError
+    attr_reader :value
+
+    def initialize(value)
+      @value = value
+    end
+  end
 
   def initialize
     if ARGV.empty?
@@ -52,11 +65,15 @@ class Jp
       '>=' => :gte,
       '<=' => :lte,
       '>' => :gt,
-      '<' => :lt
+      '<' => :lt,
+      '関数' => :func,
+      '戻る' => :return,
+      ',' => :comma
     }.freeze
 
-    # 変数を管理するハッシュ
-    @space = {}
+    # 変数・関数を管理
+    @scopes = [{}]
+    @functions = {}
 
     code = File.read(file_path)
     @scanner = StringScanner.new(code)
@@ -76,7 +93,7 @@ class Jp
     @scanner.skip(/\s+/)
     return nil if @scanner.eos?
 
-    # キーワードのマッチング(演算子や予約語)
+    # キーワードのマッチング(演算子,予約語とか)
     @keywords.keys.each do |key|
       if @scanner.scan(Regexp.new(Regexp.escape(key)))
         return @keywords[key]
@@ -88,7 +105,7 @@ class Jp
       return [:var, var]
     end
 
-    # 数値(整数や小数)
+    # 数値
     if (num = @scanner.scan(/\A\d+(\.\d+)?/))
       return num.include?('.') ? num.to_f : num.to_i
     end
@@ -111,7 +128,7 @@ class Jp
   #================================================
 
   #-----------------------------------------------
-  # 文列 = 文 (文)*
+  # 文列
   #-----------------------------------------------
   def parse_statements
     stmts = []
@@ -122,15 +139,14 @@ class Jp
   end
 
   #-----------------------------------------------
-  # 文 = 代入文 | もし文 | 繰り返し文 | 出力文 | {文列}
+  # 文
   #-----------------------------------------------
   def parse_statement
     token = get_token
-    return nil if token.nil? # もうトークンが無ければ文なし
+    return nil if token.nil?
 
     case token
     when :print
-      # 出力文: 出力 式 ;
       exp = expression
       expect(:semi, "出力文の末尾に ';' がありません")
       return [:print, exp]
@@ -142,11 +158,10 @@ class Jp
       return for_statement
 
     when :lbrace
-      # { 文列 }
       block_stmts = []
       while true
         token = get_token
-        if token == :rbrace # } でブロック終わり
+        if token == :rbrace
           break
         else
           unget_token
@@ -160,24 +175,38 @@ class Jp
       end
       return [:block, block_stmts]
 
+    when :func
+      return function_statement
+
+    when :return
+      return return_statement
     else
       if token.is_a?(Array) && token[0] == :var
         var_name = token[1]
-        if get_token == :assign
-          expr = expression
+        nex_token = get_token
+        if nex_token == :assign
+          exp = expression
           expect(:semi, "代入文の末尾に ';' がありません")
-          return [:assign, var_name, expr]
+          return [:assign, var_name, exp]
+        elsif nex_token == :lpar
+          args = parse_arguments
+          expect(:rpar, "関数呼び出しの引数リスト後に ')' がありません")
+          expect(:semi, "関数呼び出し文の末尾に ';' がありません")
+          return [:func_call, var_name, args]
         else
-          raise "代入演算子 ':=' が必要です。"
+          unget_token
+          nil
         end
+
+      else
+        unget_token
+        nil
       end
-      unget_token
-      return nil
     end
   end
 
   #-----------------------------------------------
-  # もし文 = 'もし' 式 'ならば' 文 'そうでないなら' 文
+  # もし文
   #-----------------------------------------------
   def if_statement
     # もし の次は 式
@@ -199,7 +228,7 @@ class Jp
   end
 
   #-----------------------------------------------
-  # 繰り返し文 = '繰り返し' 式 文
+  # 繰り返し文
   #-----------------------------------------------
   def for_statement
     exp = expression
@@ -209,7 +238,68 @@ class Jp
   end
 
   #-----------------------------------------------
-  # 式 = 項 (( '+' | '-' ) 項)*
+  # 関数
+  #-----------------------------------------------
+  def function_statement
+    token = get_token
+    raise "関数が正しく定義されていません" unless token.is_a?(Array) && token[0] == :var
+    func_name = token[1]
+    expect(:lpar, "関数名の後に '(' がありません")
+    params = parse_parameters
+    expect(:rpar, "パラメータリストの後に ')' がありません")
+
+    [:func_def, func_name, params, parse_statement]
+  end
+
+  def return_statement
+    exp = expression
+    expect(:semi, "戻る文の末尾に ';' がありません")
+    [:return, exp]
+  end
+
+  def parse_parameters
+    params = []
+    loop do
+      token = get_token
+      case token
+      when :rpar
+        unget_token
+        break
+      when :comma
+        next
+      when Array
+        if token[0] == :var
+          params << token[1]
+        else
+          raise "パラメータ名が不正です"
+        end
+      else
+        unget_token
+        break if params.empty?
+        raise "パラメータリストが不正です"
+      end
+    end
+    params
+  end
+
+  def parse_arguments
+    args = []
+    loop do
+      arg = expression
+      args << arg
+      token = get_token
+      if token == :comma
+        next
+      else
+        unget_token
+        break
+      end
+    end
+    args
+  end
+
+  #-----------------------------------------------
+  # 式
   #-----------------------------------------------
   def expression
     result = term
@@ -228,7 +318,7 @@ class Jp
   end
 
   #-----------------------------------------------
-  # 項 = 因子 (( '*' | '/' ) 因子)*
+  # 項
   #-----------------------------------------------
   def term
     result = factor
@@ -247,7 +337,7 @@ class Jp
   end
 
   #-----------------------------------------------
-  # 因子 = '-'? (リテラル | 変数 | '(' 式 ')' )
+  # 因子
   #-----------------------------------------------
   def factor
     token = get_token
@@ -257,30 +347,32 @@ class Jp
       token = get_token
     end
 
-    if token.is_a? Numeric
-      p ['F', token * minus_flg] if Jp::DEBUG
+    case token
+    when Numeric
       token * minus_flg
-    elsif token.is_a?(Array) && token[0] == :var
-      # 変数
-      var_node = [:var, token[1]]
-      if minus_flg == -1
-        var_node = [:mul, -1, var_node]
-      end
-      p ['F(var)', var_node] if DEBUG
-      return var_node
-    elsif token.is_a?(Array) && token[0] == :string
-      # 文字列
-      p ['F(str)', token] if Jp::DEBUG
-      return token
-    elsif token == :lpar
+    when :lpar
       result = expression
-      unless get_token == :rpar
-        raise Exception, "unexpected token"
+      expect(:rpar, "括弧の対応がありません")
+      minus_flg == -1 ? [:mul, -1, result] : result
+    when Array
+      if token[0] == :var
+        var_name = token[1]
+        g_token = get_token
+        if g_token == :lpar
+          args = parse_arguments
+          expect(:rpar, "関数呼び出しの引数リスト後に ')' がありません")
+          node = [:func_call, var_name, args]
+          minus_flg == -1 ? [:mul, -1, node] : node
+        else
+          unget_token
+          node = [:var, var_name]
+          minus_flg == -1 ? [:mul, -1, node] : node
+        end
+      elsif token[0] == :string
+        token
       end
-      p ['F', [:mul, minus_flg, result]] if Jp::DEBUG
-      return [:mul, minus_flg, result]
     else
-      raise Exception, "unexpected token"
+      raise "不正な因子です: #{token.inspect}"
     end
   end
 
@@ -293,22 +385,18 @@ class Jp
     when Array
       case node[0]
       when :assign
-        # node = [:assign, var_name, exp]
         var_name = node[1]
         value = eval(node[2])
-        @space[var_name] = value
+        @scopes.last[var_name] = value
         return value
 
       when :print
-        # node = [:print, exp]
         val = eval(node[1])
         puts val
         return val
 
       when :if
-        # [:if, exp, then_stmt, else_stmt]
         cond_val = eval(node[1])
-        # 0以外なら真
         if cond_val != 0
           eval(node[2])
         else
@@ -316,21 +404,54 @@ class Jp
         end
 
       when :for
-        # [:for, exp, stmt]
         count_val = eval(node[1])
         count_val.to_i.times do
           eval(node[2])
         end
 
       when :block
-        # [:block, [stmts...]]
         node[1].each do |s|
           eval(s)
         end
 
+      when :func_def
+        func_name = node[1]
+        params = node[2]
+        body = node[3]
+        @functions[func_name] = { params: params, body: body }
+        nil
+
+      when :func_call
+        func_name = node[1]
+        args = node[2].map { |arg| eval(arg) }
+        function = @functions[func_name] || raise("未定義の関数: #{func_name}")
+
+        if function[:params].size != args.size
+          raise "引数の数が一致しません: #{func_name}"
+        end
+
+        @scopes.push({})
+        function[:params].each_with_index do |param, i|
+          @scopes.last[param] = args[i]
+        end
+
+        begin
+          result = eval(function[:body])
+        rescue Return => ret
+          result = ret.value
+        ensure
+          @scopes.pop
+        end
+
+        result
+
+      when :return
+        value = eval(node[1])
+        raise Return.new(value)
+
       when :var
         var_name = node[1]
-        return @space[var_name] || raise("未定義の変数: #{var_name}")
+        return @scopes.last[var_name] || raise("未定義の変数: #{var_name}")
 
       when :string
         node[1]
@@ -374,7 +495,7 @@ class Jp
   end
 
   #================================================
-  # ヘルパー
+  # その他
   #================================================
   def expect(token_kind, err_msg)
     token = get_token
