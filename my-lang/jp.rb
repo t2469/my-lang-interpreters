@@ -469,7 +469,7 @@ class Jp
       when :mod
         left_val = eval(node[1]).to_i
         right_val = eval(node[2]).to_i
-        raise "0でmod(%)演算はできません" if right_val == 0
+        raise "0でmod演算はできません" if right_val == 0
         left_val % right_val
       when :eq
         eval(node[1]) == eval(node[2]) ? 1 : 0
